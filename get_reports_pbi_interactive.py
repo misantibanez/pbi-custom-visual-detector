@@ -248,7 +248,8 @@ def is_custom_visual(visual_type: str) -> bool:
     return False
 
 
-def analyze_workspace_reports(access_token: str, workspace_id: str, workspace_name: str, capacity_id: str = "") -> List[Dict]:
+def analyze_workspace_reports(access_token: str, workspace_id: str, workspace_name: str, capacity_id: str = "",
+                               csv_filename: str = None, fieldnames: List[str] = None) -> List[Dict]:
     """Analyze all reports in a workspace. Returns list of analysis results."""
     print(f"\n{'='*64}")
     print(f"{'='*16}                                                Analyzing workspace: {workspace_name}")
@@ -364,6 +365,13 @@ def analyze_workspace_reports(access_token: str, workspace_id: str, workspace_na
         
         print(f"  LINK: {web_url}")
         results.append(result)
+        
+        # Write to CSV immediately after each report
+        if csv_filename and fieldnames:
+            with open(csv_filename, 'a', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writerow(result)
+            print(f"  [Saved to CSV]")
     
     return results
 
@@ -381,23 +389,7 @@ def main():
         print("ERROR: Failed to authenticate")
         return
     
-    # Ask for capacity filter
-    print("\nFilter by Capacity ID?")
-    print("  - Enter capacity IDs separated by comma")
-    print("  - Or press Enter to show all workspaces")
-    capacity_input = input("Capacity IDs: ").strip()
-    
-    capacity_ids = None
-    if capacity_input:
-        capacity_ids = [c.strip() for c in capacity_input.split(",") if c.strip()]
-        print(f"Filtering by {len(capacity_ids)} capacity ID(s)")
-    
-    # Get workspaces
-    print("\nFetching workspaces...")
-    workspaces = get_workspaces(access_token, capacity_ids=capacity_ids)
-    print(f"Found {len(workspaces)} workspaces\n")
-    
-    # Create CSV file and write header immediately
+    # Create CSV file FIRST before any API calls
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_filename = f"pbi_custom_visuals_report_{timestamp}.csv"
     fieldnames = ['workspace', 'workspace_id', 'capacity_id', 'report', 'report_id', 'method', 'num_pages', 
@@ -410,6 +402,27 @@ def main():
     print(f"CSV file created: {csv_filename}")
     print("Results will be saved progressively...\n")
     
+    # Ask for capacity filter
+    print("Filter by Capacity ID?")
+    print("  - Enter capacity IDs separated by comma")
+    print("  - Or press Enter to show all workspaces")
+    capacity_input = input("Capacity IDs: ").strip()
+    
+    capacity_ids = None
+    if capacity_input:
+        capacity_ids = [c.strip() for c in capacity_input.split(",") if c.strip()]
+        print(f"Filtering by {len(capacity_ids)} capacity ID(s)")
+    
+    # Get workspaces
+    print("\nFetching workspaces...")
+    try:
+        workspaces = get_workspaces(access_token, capacity_ids=capacity_ids)
+        print(f"Found {len(workspaces)} workspaces\n")
+    except Exception as e:
+        print(f"ERROR fetching workspaces: {e}")
+        print("Check if you have Fabric Administrator permissions")
+        return
+    
     # Collect all results
     all_results = []
     
@@ -419,16 +432,9 @@ def main():
         workspace_id = workspace.get("id")
         capacity_id = workspace.get("capacityId", "")
         
-        results = analyze_workspace_reports(access_token, workspace_id, workspace_name, capacity_id)
+        results = analyze_workspace_reports(access_token, workspace_id, workspace_name, capacity_id,
+                                            csv_filename=csv_filename, fieldnames=fieldnames)
         all_results.extend(results)
-        
-        # Append results to CSV after each workspace
-        if results:
-            with open(csv_filename, 'a', newline='', encoding='utf-8') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                for result in results:
-                    writer.writerow(result)
-            print(f"  [Saved {len(results)} report(s) to CSV]")
     
     # Summary
     print(f"\n{'='*60}")
