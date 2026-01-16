@@ -10,8 +10,8 @@ from msal import PublicClientApplication
 from typing import Optional, List, Dict
 
 # Configuration
-CLIENT_ID = "client-id"  # Azure CLI Public Client ID
-TENANT_ID = "tenant-id"  # Your Tenant ID
+CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"  # Azure CLI Public Client ID
+TENANT_ID = "4031a1d8-1206-4efe-8056-03ea2eb27883"  # Your Tenant ID
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPE = ["https://analysis.windows.net/powerbi/api/.default"]
 PBI_API_BASE = "https://api.powerbi.com/v1.0/myorg"
@@ -51,7 +51,7 @@ def get_access_token_interactive() -> Optional[str]:
         return None
 
 
-def get_workspaces(access_token: str, use_admin_api: bool = True) -> List[Dict]:
+def get_workspaces(access_token: str, use_admin_api: bool = True, exclude_personal: bool = True) -> List[Dict]:
     """Get all workspaces. Use admin API to get ALL workspaces in tenant."""
     headers = {"Authorization": f"Bearer {access_token}"}
     
@@ -65,7 +65,13 @@ def get_workspaces(access_token: str, use_admin_api: bool = True) -> List[Dict]:
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     
-    return response.json().get("value", [])
+    workspaces = response.json().get("value", [])
+    
+    # Filter out personal workspaces if requested
+    if exclude_personal:
+        workspaces = [ws for ws in workspaces if ws.get("type") != "PersonalGroup"]
+    
+    return workspaces
 
 
 def get_workspace_users(access_token: str, workspace_id: str, use_admin_api: bool = True) -> List[Dict]:
