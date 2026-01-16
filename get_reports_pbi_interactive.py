@@ -16,8 +16,8 @@ from msal import PublicClientApplication
 from typing import List, Dict, Optional
 
 # Configuration
-CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"  # Azure CLI Public Client ID (Microsoft-owned)
-TENANT_ID = "4031a1d8-1206-4efe-8056-03ea2eb27883"  # Your Tenant ID
+CLIENT_ID = "client-id"   # Azure CLI Public Client ID (Microsoft-owned)
+TENANT_ID = "tenant-id"  # Tenant ID
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPE = ["https://analysis.windows.net/powerbi/api/.default"]
 PBI_API_BASE = "https://api.powerbi.com/v1.0/myorg"
@@ -411,3 +411,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
