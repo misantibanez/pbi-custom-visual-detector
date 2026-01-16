@@ -10,6 +10,7 @@ import time
 import zipfile
 import io
 import csv
+import os
 from datetime import datetime
 from msal import PublicClientApplication
 from typing import List, Dict, Optional
@@ -278,6 +279,13 @@ def analyze_workspace_reports(access_token: str, workspace_id: str, workspace_na
             
             # Extract visuals
             visuals = extract_visuals_from_pbix(pbix_content)
+            
+            # Delete PBIX after analysis
+            try:
+                os.remove(filename)
+                print(f"  Deleted PBIX: {filename}")
+            except Exception as e:
+                print(f"  Warning: Could not delete PBIX: {e}")
             
             if visuals:
                 print(f"  Total visuals found: {len(visuals)}")
