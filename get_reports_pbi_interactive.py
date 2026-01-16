@@ -16,8 +16,8 @@ from msal import PublicClientApplication
 from typing import List, Dict, Optional
 
 # Configuration
-CLIENT_ID = "client-id"   # Azure CLI Public Client ID (Microsoft-owned)
-TENANT_ID = "tenant-id"  # Tenant ID
+CLIENT_ID = "client-id"  # Azure CLI Public Client ID (Microsoft-owned)
+TENANT_ID = "tenant-id"  # Your Tenant ID
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPE = ["https://analysis.windows.net/powerbi/api/.default"]
 PBI_API_BASE = "https://api.powerbi.com/v1.0/myorg"
@@ -68,15 +68,33 @@ def get_access_token_interactive() -> Optional[str]:
         return None
 
 
-def get_workspaces(access_token: str) -> List[Dict]:
-    """Get all workspaces accessible to the user."""
+def get_workspaces(access_token: str, use_admin_api: bool = True, exclude_personal: bool = True,
+                   capacity_ids: List[str] = None) -> List[Dict]:
+    """Get all workspaces. Use admin API to get ALL workspaces in tenant."""
     headers = {"Authorization": f"Bearer {access_token}"}
-    url = f"{PBI_API_BASE}/groups"
+    
+    if use_admin_api:
+        # Admin API returns ALL workspaces in the tenant
+        url = f"{PBI_API_BASE}/admin/groups?$top=5000"
+    else:
+        # Regular API only returns workspaces user has access to
+        url = f"{PBI_API_BASE}/groups"
     
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     
-    return response.json().get("value", [])
+    workspaces = response.json().get("value", [])
+    
+    # Filter out personal workspaces if requested
+    if exclude_personal:
+        workspaces = [ws for ws in workspaces if ws.get("type") != "PersonalGroup"]
+    
+    # Filter by capacity IDs if provided
+    if capacity_ids:
+        capacity_ids_lower = [c.lower() for c in capacity_ids]
+        workspaces = [ws for ws in workspaces if ws.get("capacityId", "").lower() in capacity_ids_lower]
+    
+    return workspaces
 
 
 def get_reports_in_workspace(access_token: str, workspace_id: str) -> List[Dict]:
@@ -230,7 +248,7 @@ def is_custom_visual(visual_type: str) -> bool:
     return False
 
 
-def analyze_workspace_reports(access_token: str, workspace_id: str, workspace_name: str) -> List[Dict]:
+def analyze_workspace_reports(access_token: str, workspace_id: str, workspace_name: str, capacity_id: str = "") -> List[Dict]:
     """Analyze all reports in a workspace. Returns list of analysis results."""
     print(f"\n{'='*64}")
     print(f"{'='*16}                                                Analyzing workspace: {workspace_name}")
@@ -255,6 +273,8 @@ def analyze_workspace_reports(access_token: str, workspace_id: str, workspace_na
         # Initialize result record
         result = {
             "workspace": workspace_name,
+            "workspace_id": workspace_id,
+            "capacity_id": capacity_id,
             "report": report_name,
             "report_id": report_id,
             "method": "Failed",
@@ -361,10 +381,34 @@ def main():
         print("ERROR: Failed to authenticate")
         return
     
+    # Ask for capacity filter
+    print("\nFilter by Capacity ID?")
+    print("  - Enter capacity IDs separated by comma")
+    print("  - Or press Enter to show all workspaces")
+    capacity_input = input("Capacity IDs: ").strip()
+    
+    capacity_ids = None
+    if capacity_input:
+        capacity_ids = [c.strip() for c in capacity_input.split(",") if c.strip()]
+        print(f"Filtering by {len(capacity_ids)} capacity ID(s)")
+    
     # Get workspaces
-    print("Fetching workspaces...")
-    workspaces = get_workspaces(access_token)
+    print("\nFetching workspaces...")
+    workspaces = get_workspaces(access_token, capacity_ids=capacity_ids)
     print(f"Found {len(workspaces)} workspaces\n")
+    
+    # Create CSV file and write header immediately
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_filename = f"pbi_custom_visuals_report_{timestamp}.csv"
+    fieldnames = ['workspace', 'workspace_id', 'capacity_id', 'report', 'report_id', 'method', 'num_pages', 
+                  'is_directlake', 'total_visuals', 'custom_visuals']
+    
+    with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+    
+    print(f"CSV file created: {csv_filename}")
+    print("Results will be saved progressively...\n")
     
     # Collect all results
     all_results = []
@@ -373,27 +417,21 @@ def main():
     for workspace in workspaces:
         workspace_name = workspace.get("name", "Unnamed Workspace")
         workspace_id = workspace.get("id")
+        capacity_id = workspace.get("capacityId", "")
         
-        results = analyze_workspace_reports(access_token, workspace_id, workspace_name)
+        results = analyze_workspace_reports(access_token, workspace_id, workspace_name, capacity_id)
         all_results.extend(results)
-    
-    # Generate CSV report
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_filename = f"pbi_custom_visuals_report_{timestamp}.csv"
-    
-    print(f"\n{'='*60}")
-    print("Generating CSV report...")
-    
-    with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = ['workspace', 'report', 'report_id', 'method', 'num_pages', 
-                      'is_directlake', 'total_visuals', 'custom_visuals']
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         
-        writer.writeheader()
-        for result in all_results:
-            writer.writerow(result)
+        # Append results to CSV after each workspace
+        if results:
+            with open(csv_filename, 'a', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                for result in results:
+                    writer.writerow(result)
+            print(f"  [Saved {len(results)} report(s) to CSV]")
     
     # Summary
+    print(f"\n{'='*60}")
     total_reports = len(all_results)
     reports_with_custom = sum(1 for r in all_results if r['custom_visuals'] > 0)
     directlake_reports = sum(1 for r in all_results if r['is_directlake'] == 'Yes')
@@ -411,4 +449,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
