@@ -51,7 +51,8 @@ def get_access_token_interactive() -> Optional[str]:
         return None
 
 
-def get_workspaces(access_token: str, use_admin_api: bool = True, exclude_personal: bool = True) -> List[Dict]:
+def get_workspaces(access_token: str, use_admin_api: bool = True, exclude_personal: bool = True, 
+                   capacity_ids: List[str] = None) -> List[Dict]:
     """Get all workspaces. Use admin API to get ALL workspaces in tenant."""
     headers = {"Authorization": f"Bearer {access_token}"}
     
@@ -70,6 +71,11 @@ def get_workspaces(access_token: str, use_admin_api: bool = True, exclude_person
     # Filter out personal workspaces if requested
     if exclude_personal:
         workspaces = [ws for ws in workspaces if ws.get("type") != "PersonalGroup"]
+    
+    # Filter by capacity IDs if provided
+    if capacity_ids:
+        capacity_ids_lower = [c.lower() for c in capacity_ids]
+        workspaces = [ws for ws in workspaces if ws.get("capacityId", "").lower() in capacity_ids_lower]
     
     return workspaces
 
@@ -241,9 +247,20 @@ def main():
         print("✗ Failed to authenticate")
         return
     
+    # Ask for capacity filter
+    print("\nFilter by Capacity ID?")
+    print("  - Enter capacity IDs separated by comma")
+    print("  - Or press Enter to show all workspaces")
+    capacity_input = input("Capacity IDs: ").strip()
+    
+    capacity_ids = None
+    if capacity_input:
+        capacity_ids = [c.strip() for c in capacity_input.split(",") if c.strip()]
+        print(f"Filtering by {len(capacity_ids)} capacity ID(s)")
+    
     # Get workspaces
     print("\nFetching workspaces...")
-    workspaces = get_workspaces(access_token)
+    workspaces = get_workspaces(access_token, capacity_ids=capacity_ids)
     print(f"Found {len(workspaces)} workspaces\n")
     
     # List workspaces
